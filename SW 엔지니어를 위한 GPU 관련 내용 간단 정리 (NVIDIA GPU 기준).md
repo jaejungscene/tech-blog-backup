@@ -1321,4 +1321,4 @@ AMD GPU                               → ROCm + MIOpen
 ---
 
 **Reference**
-- [nvidia cuda programming guid](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)
+- [nvidia cuda programming guide](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)
