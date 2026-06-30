@@ -401,6 +401,8 @@ SM은 Block이 배치되고 Warp들이 실제로 실행되는 GPU 내부 연산 
 ---
 
 ## 4. GPU 메모리 계층 구조
+![cpu-gpu-system-diagram](data/gpu-cpu-system-diagram.png)
+*그림: CPU, GPU 시스템 구조. 출처: [NVIDIA CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)*
 
 메모리 계층을 이해하면 "왜 이 연산이 느린가"를 진단할 수 있다.
 
