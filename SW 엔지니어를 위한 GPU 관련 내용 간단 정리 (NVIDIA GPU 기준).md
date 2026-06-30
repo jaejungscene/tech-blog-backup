@@ -1317,3 +1317,8 @@ AMD GPU                               → ROCm + MIOpen
 > **마지막으로**: GPU 최적화는 프로파일 없이 추측으로 하면 안 된다.  
 > "먼저 측정하고, 병목을 특정하고, 그다음 최적화한다"는 순서를 반드시 지킬 것.  
 > nvidia-smi → PyTorch Profiler → Nsight Systems → Nsight Compute 순으로 좁혀가는 것이 가장 효율적인 접근법이다.
+
+---
+
+**Reference**
+- [nvidia cuda programming guid](https://docs.nvidia.com/cuda/cuda-programming-guide/01-introduction/programming-model.html)
