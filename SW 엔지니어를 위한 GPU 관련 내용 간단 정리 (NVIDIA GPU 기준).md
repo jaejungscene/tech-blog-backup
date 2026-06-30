@@ -2,8 +2,6 @@
 
 ## 목차
 
-- [SW 엔지니어를 위한 GPU 관련 내용 간단 정리 (NVIDIA GPU 기준)](#sw-엔지니어를-위한-gpu-관련-내용-간단-정리-nvidia-gpu-기준)
-  - [목차](#목차)
   - [1. GPU 벤더별 아키텍처 개요](#1-gpu-벤더별-아키텍처-개요)
   - [2. CUDA Kernel과 실행 계층: Kernel / Grid / Block / Thread](#2-cuda-kernel과-실행-계층-kernel--grid--block--thread)
     - [Kernel이란?](#kernel이란)
