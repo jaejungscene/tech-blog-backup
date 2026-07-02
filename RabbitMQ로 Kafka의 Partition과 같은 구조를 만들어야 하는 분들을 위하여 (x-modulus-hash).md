@@ -1,24 +1,25 @@
 ## 목차
+- [1. Kafka Partition이 필요한 이유](#1-kafka-partition이-필요한-이유)
+- [2. RabbitMQ에서 Partition 기능을 대체할 두 가지 대안](#2-rabbitmq에서-partition-기능을-대체할-두-가지-대안)
+- [3. x-modulus-hash 기반 전체 구조](#3-x-modulus-hash-기반-전체-구조)
+- [4. 기존 구조를 partition 구조로 바꾸기](#4-기존-구조를-partition-구조로-바꾸기)
+- [5. Python 구현 예시](#5-python-구현-예시)
+    - [topology 생성](#topology-생성)
+    - [Producer](#producer)
+    - [Consumer](#consumer)
+    - [실행](#실행)
+- [6. 설계 기준: routing key, Queue 수, consumer 수](#6-설계-기준-routing-key-queue-수-consumer-수)
+    - [routing key를 무엇으로 쓸 것인가](#routing-key를-무엇으로-쓸-것인가)
+    - [Queue 개수](#queue-개수)
+    - [Queue당 consumer 수](#queue당-consumer-수)
+- [7. 운영 환경에서 주의할 점](#7-운영-환경에서-주의할-점)
+    - [Queue 개수를 자주 바꾸지 않는다](#queue-개수를-자주-바꾸지-않는다)
+    - [Hot key 문제](#hot-key-문제)
+    - [실패 처리](#실패-처리)
+    - [메시지 자체에 순서 검증 정보를 넣는다](#메시지-자체에-순서-검증-정보를-넣는다)
+- [8. 마무리](#8-마무리)
 
-1. [Kafka Partition이 필요한 이유](#1-kafka-partition이-필요한-이유)
-2. [RabbitMQ에는 Partition이 없다 — 두 가지 대안](#2-rabbitmq에는-partition이-없다--두-가지-대안)
-3. [x-modulus-hash 기반 전체 구조](#3-x-modulus-hash-기반-전체-구조)
-4. [기존 구조를 partition 구조로 바꾸기](#4-기존-구조를-partition-구조로-바꾸기)
-5. [Python 구현 예시](#5-python-구현-예시)
-   - [topology 생성](#topology-생성)
-   - [Producer](#producer)
-   - [Consumer](#consumer)
-   - [실행](#실행)
-6. [설계 기준: routing key, Queue 수, consumer 수](#6-설계-기준-routing-key-queue-수-consumer-수)
-   - [routing key를 무엇으로 쓸 것인가](#routing-key를-무엇으로-쓸-것인가)
-   - [Queue 개수](#queue-개수)
-   - [Queue당 consumer 수](#queue당-consumer-수)
-7. [운영 환경에서 주의할 점](#7-운영-환경에서-주의할-점)
-   - [Queue 개수를 자주 바꾸지 않는다](#queue-개수를-자주-바꾸지-않는다)
-   - [Hot key 문제](#hot-key-문제)
-   - [실패 처리](#실패-처리)
-   - [메시지 자체에 순서 검증 정보를 넣는다](#메시지-자체에-순서-검증-정보를-넣는다)
-8. [마무리](#8-마무리)
+
 ## 1. Kafka Partition이 필요한 이유
 
 Kafka의 Partition은 하나의 Topic 데이터를 여러 갈래로 나누어 병렬 처리하면서도, 특정 기준의 순서를 보장하고 싶을 때 사용한다.
@@ -94,7 +95,9 @@ sequenceDiagram
 
 공통점은 하나다. **전체 이벤트는 병렬로 빠르게 처리하되, 같은 business key의 이벤트는 순서대로 처리하고 싶다**는 것. Kafka Partition의 핵심은 단순히 데이터를 나누는 게 아니라, key 기준으로 데이터를 나눠서 병렬 처리와 순서 보장을 동시에 가져가는 데 있다.
 
-## 2. RabbitMQ에는 Partition이 없다 — 두 가지 대안
+물론 RabbitMQ는 Kafka처럼 "스트림 처리 플랫폼"으로서의 목적을 두고 탄생한 것이 아니라, 애플리케이션 간 메시지를 안정적으로 라우팅하고 전달하기 위한 메시지 브로커로서의 목적을 가지고 탄생했기에 Partition이라는 개념이 없다. 하지만 위와 같은 요구사항을 충족시킬 수 있는 기능적 대안은 존재한다 (다만 완전히 Partition이랑 동일하지는 않다). 따라서 위와 같은 요구사항이 있을 때, 이미 Kafka 혹은 NATS Jetstream과 같은 스트림 처리 플랫폼을 사용하고 있다면, 그냥 Partition을 사용하여 구현하면 된다. 하지만 나와 같이 이미 회사의 소프트웨어가 RabbitMQ 플랫폼으로 구현되어 있고, 여러 비용(전환 비용·시간·유지보수 비용 등)을 고려했을 때, 스트림 처리 플랫폼으로 마이그레이션 할 수 없는 상황에 놓인 분들이라면 이 글을 참고하면 좋을 것 같다.
+
+## 2. RabbitMQ에서 Partition 기능을 대체할 두 가지 대안
 
 RabbitMQ에서 비슷한 구조를 만들려면 두 exchange type 중 하나를 선택해야 한다.
 
@@ -236,9 +239,9 @@ After
 pip install pika
 ```
 
-### topology 생성
+#### topology 생성
 
-`x-modulus-hash` exchange와 partition Queue들을 만든다.
+`x-modulus-hash` exchange와 partition Queue들을 만든다. 처리에 실패한 메시지를 담을 DLX(fanout exchange)와 DLQ도 함께 선언해서, partition Queue에 `x-dead-letter-exchange`를 지정해둔다.
 
 ```python
 # setup_topology.py
@@ -250,6 +253,9 @@ RABBITMQ_URL = "amqp://guest:guest@localhost:5672/%2F"
 EXCHANGE_NAME = "order_events.partitioned"
 QUEUE_PREFIX = "order_events.partition"
 PARTITION_COUNT = 5
+
+DLX_NAME = "order_events.dlx"
+DLQ_NAME = "order_events.dlq"
 
 
 def main():
@@ -264,6 +270,16 @@ def main():
         durable=True,
     )
 
+    # 1-1. 실패 메시지를 받을 DLX(fanout)와 DLQ 선언
+    # partition Queue에서 nack(requeue=False)한 메시지는 이 DLX를 거쳐 DLQ에 쌓인다.
+    channel.exchange_declare(
+        exchange=DLX_NAME,
+        exchange_type="fanout",
+        durable=True,
+    )
+    channel.queue_declare(queue=DLQ_NAME, durable=True)
+    channel.queue_bind(exchange=DLX_NAME, queue=DLQ_NAME, routing_key="")
+
     # 2. partition 역할을 할 Queue 여러 개 선언
     for i in range(PARTITION_COUNT):
         queue_name = f"{QUEUE_PREFIX}.{i}"
@@ -275,8 +291,10 @@ def main():
                 # Queue에 백업 consumer를 여러 개 붙여두더라도
                 # 실제 active consumer는 하나만 동작하도록 보장한다.
                 # consumer를 정말 하나씩만 띄울 거라면 필수는 아니지만,
-                # failover를 고려해 기본값으로 켜두는 편이 안전하다.
+                # failover를 고려해 기본적으로 켜두는 편이 안전하다.
                 "x-single-active-consumer": True,
+                # 처리 실패한 메시지(nack, requeue=False)를 DLX로 보낸다.
+                "x-dead-letter-exchange": DLX_NAME,
             },
         )
 
@@ -298,7 +316,7 @@ if __name__ == "__main__":
 
 `x-modulus-hash`는 Queue를 bind할 때 사용한 binding key를 완전히 무시하고, Producer가 publish 시 전달한 `routing_key`만 hash한다. 따라서 실제 partition key는 Producer 코드에서 결정된다.
 
-### Producer
+#### Producer
 
 ```python
 # producer.py
@@ -313,7 +331,7 @@ RABBITMQ_URL = "amqp://guest:guest@localhost:5672/%2F"
 EXCHANGE_NAME = "order_events.partitioned"
 
 
-def publish_order_event(order_id: str, event_type: str, payload: dict):
+def publish_order_event(order_id: str, event_type: str, payload: dict, order_version: int = 1):
     params = pika.URLParameters(RABBITMQ_URL)
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
@@ -322,6 +340,10 @@ def publish_order_event(order_id: str, event_type: str, payload: dict):
         "event_id": str(uuid.uuid4()),
         "order_id": order_id,
         "event_type": event_type,
+        # 7장에서 설명하는 순서 검증용 필드. 실무에서는 주문 상태를 조회해
+        # 다음 order_version 값을 채워야 한다. 여기서는 단순화를 위해
+        # 호출하는 쪽에서 직접 지정한다.
+        "order_version": order_version,
         "occurred_at": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
     }
@@ -346,13 +368,13 @@ def publish_order_event(order_id: str, event_type: str, payload: dict):
 
 
 if __name__ == "__main__":
-    publish_order_event("ORD-1001", "ORDER_CREATED", {"amount": 30000})
-    publish_order_event("ORD-1001", "PAYMENT_COMPLETED", {"payment_id": "PAY-777"})
-    publish_order_event("ORD-1001", "SHIPPING_REQUESTED", {"address": "Seoul"})
-    publish_order_event("ORD-1002", "ORDER_CREATED", {"amount": 50000})
+    publish_order_event("ORD-1001", "ORDER_CREATED", {"amount": 30000}, order_version=1)
+    publish_order_event("ORD-1001", "PAYMENT_COMPLETED", {"payment_id": "PAY-777"}, order_version=2)
+    publish_order_event("ORD-1001", "SHIPPING_REQUESTED", {"address": "Seoul"}, order_version=3)
+    publish_order_event("ORD-1002", "ORDER_CREATED", {"amount": 50000}, order_version=1)
 ```
 
-### Consumer
+#### Consumer
 
 partition Queue 하나를 담당하도록 작성한다.
 
@@ -394,6 +416,9 @@ def main(partition_index: int):
         except Exception as exc:
             print(f"[error] failed to process message: {exc}")
             # 운영 환경에서는 무한 requeue보다 DLQ를 권장한다.
+            # 이 Queue는 setup_topology.py에서 x-dead-letter-exchange가
+            # 설정되어 있으므로, requeue=False로 nack하면
+            # order_events.dlq로 전달된다.
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
     channel.basic_consume(queue=queue_name, on_message_callback=callback, auto_ack=False)
@@ -410,7 +435,7 @@ if __name__ == "__main__":
     main(partition_index=int(sys.argv[1]))
 ```
 
-### 실행
+#### 실행
 
 ```bash
 python setup_topology.py
@@ -426,7 +451,7 @@ python consumer.py 4
 
 `x-modulus-hash` 자체는 옵션이 많지 않다. 핵심 동작은 `hash(publish routing_key) % bound_queue_count` 하나뿐이고, 실무에서 신경 써야 할 것은 아래 세 가지다.
 
-### routing key를 무엇으로 쓸 것인가
+#### routing key를 무엇으로 쓸 것인가
 
 같은 값끼리 순서를 지켜야 하는 값을 routing key로 쓰면 된다. 주문 도메인이면 `order_id`, 사용자별 순서가 중요하면 `user_id`, 설비별 순서가 중요하면 `equipment_id`를 쓰는 식이다.
 
@@ -436,7 +461,7 @@ channel.basic_publish(exchange="user_events.partitioned", routing_key=user_id, b
 channel.basic_publish(exchange="equipment_events.partitioned", routing_key=equipment_id, body=body)
 ```
 
-### Queue 개수
+#### Queue 개수
 
 Kafka의 partition count와 비슷하게 생각하면 된다. Queue가 5개면 `hash(routing_key) % 5`로 분산된다.
 
@@ -447,7 +472,7 @@ Queue 수가 너무 많으면 → consumer 운영, 모니터링, 장애 대응�
 
 당장 consumer가 5개라도, 나중에 늘릴 가능성이 있다면 처음부터 여유 있게 Queue 수를 잡아둘 수 있다. 다만 partition Queue가 N개라면 모든 메시지를 소비하기 위해 최소 N개의 consumer가 붙어 있어야 한다는 점은 그대로다. 일부 Queue에 consumer가 붙어 있지 않으면 그 Queue에 쌓인 메시지는 처리되지 않는다.
 
-### Queue당 consumer 수
+#### Queue당 consumer 수
 
 같은 `order_id`가 같은 Queue로 들어가더라도, 그 Queue에 여러 consumer가 동시에 붙으면 처리 순서가 깨질 수 있다. 따라서 아래 둘 중 하나를 선택해야 한다.
 
@@ -460,7 +485,7 @@ Queue 수가 너무 많으면 → consumer 운영, 모니터링, 장애 대응�
 
 ## 7. 운영 환경에서 주의할 점
 
-### Queue 개수를 자주 바꾸지 않는다
+#### Queue 개수를 자주 바꾸지 않는다
 
 `x-modulus-hash`는 `Hash mod N` 구조이고, `N`은 bind된 Queue 개수다. Queue 개수가 바뀌면 계산식 자체가 바뀌어 많은 key의 매핑이 한꺼번에 바뀐다.
 
@@ -471,11 +496,11 @@ hash(ORD-1001) % 6 = 4   → order_events.partition.4 (Queue를 6개로 늘린 �
 
 Kafka에서 partition 수를 함부로 바꾸지 않는 것과 같은 이유다. partition Queue 수는 처음에 신중히 정하고 운영 중에는 가급적 바꾸지 않는 것이 좋다.
 
-### Hot key 문제
+#### Hot key 문제
 
 `order_id`가 충분히 다양하면 메시지는 여러 Queue에 비교적 고르게 분산되지만, 특정 key에 메시지가 몰리면 그 Queue 하나가 병목이 된다. Kafka의 hot partition 문제와 동일하다. order_id별 strict ordering이 꼭 필요하다면 이 병목은 감수해야 하고, 순서 보장이 덜 중요하다면 key를 더 세분화하거나 병렬 처리 가능한 단계와 순차 처리 단계를 분리하는 식으로 풀어야 한다.
 
-### 실패 처리
+#### 실패 처리
 
 순서가 중요한 Queue에서 실패 메시지를 무한 requeue하면 뒤따르는 메시지 처리가 막히거나 전체 partition이 멈출 수 있다.
 
@@ -492,9 +517,11 @@ ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 3. consumer를 멈추고 운영자가 원인 확인 후 재개
 ```
 
-### 메시지 자체에 순서 검증 정보를 넣는다
+5장 예시 코드에서는 partition Queue에 `x-dead-letter-exchange`를 지정해두었기 때문에, `nack(requeue=False)`만으로 실패 메시지가 자동으로 `order_events.dlq`에 쌓인다. 다만 예시 코드는 재시도 횟수를 세지 않고 첫 실패에 바로 DLQ로 보내는 단순한 형태이므로, 일시적 오류(네트워크 지연 등)까지 걸러내려면 재시도 횟수 카운트를 추가하는 것이 좋다.
 
-메시징 시스템이 같은 key를 같은 Queue로 보내주더라도, Producer가 잘못된 순서로 메시지를 발행하면 RabbitMQ가 그 순서를 자동으로 고쳐주지는 않는다. 중요한 도메인이라면 메시지에 version이나 sequence를 넣어두는 것이 좋다.
+#### 메시지 자체에 순서 검증 정보를 넣는다
+
+메시징 시스템이 같은 key를 같은 Queue로 보내주더라도, Producer가 잘못된 순서로 메시지를 발행하면 RabbitMQ가 그 순서를 자동으로 고쳐주지는 않는다. 중요한 도메인이라면 메시지에 version이나 sequence를 넣어두는 것이 좋다. 5장 producer.py 예시에도 이 `order_version` 필드를 포함해두었다.
 
 ```json
 {
@@ -527,5 +554,3 @@ Producer → x-modulus-hash exchange → partition 역할을 하는 여러 Queue
 5. 중요한 도메인 이벤트에는 version/sequence를 넣어 애플리케이션에서도 검증한다.
 6. RabbitMQ 4.3 이상이면 plugin 없이 바로 쓸 수 있다는 점을 확인하고 시작한다.
 ```
-
-RabbitMQ에서 Kafka Partition 같은 구조를 만들고 싶다면, `x-modulus-hash` exchange를 사용해 routing_key 기준으로 Queue를 나누고, 각 Queue를 하나의 partition처럼 소비하면 된다.
